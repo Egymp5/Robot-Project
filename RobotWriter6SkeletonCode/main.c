@@ -6,8 +6,13 @@
 #include "serial.h"
 
 #define bdrate 115200               /* 115200 baud */
-
+//Define constants
+#define MAX_WORD_LENGTH 100 
+#define FONT_DATA_SIZE 128 //Number of ASCII characters
+#define MAX_LINE_WIDTH 100 //Max writing width in mm
+#define FONT_SCALE_FACTOR 18 //S.F to reduce size
 void SendCommands (char *buffer );
+
 
 int main()
 {
@@ -71,6 +76,18 @@ int main()
 
     return (0);
 }
+
+int UserInputTextHeight ( )
+{
+
+
+}
+float ScaleFactorAdjustment ()
+{
+
+
+} 
+
 
 // Send the data to the robot - note in 'PC' mode you need to hit space twice
 // as the dummy 'WaitForReply' has a getch() within the function.
