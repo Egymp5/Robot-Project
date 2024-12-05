@@ -1,101 +1,77 @@
 #include <stdio.h>
 #include <stdlib.h>
-//#include <conio.h>
-//#include <windows.h>
 #include "rs232.h"
 #include "serial.h"
 
 #define bdrate 115200               /* 115200 baud */
-//Define constants
 #define MAX_WORD_LENGTH 100 
-#define FONT_DATA_SIZE 128 //Number of ASCII characters
-#define MAX_LINE_WIDTH 100 //Max writing width in mm
-#define FONT_SCALE_FACTOR 18 //S.F to reduce size
-void SendCommands (char *buffer );
+#define FONT_DATA_SIZE 128 // Number of ASCII characters
+#define MAX_LINE_WIDTH 100 // Max writing width in mm
+#define FONT_SCALE_FACTOR 18 // S.F to reduce size
 
+// Declare functions
+int UserInputTextHeight();
+float ScaleFactorAdjustment(int textHeight);
+void SendCommands(char *buffer);
+void LoadFontFile(const char *fontFilePath); // Placeholder for font loading
+void GenerateGCodeForWord(const char *word, FILE *outputFile, float scaleFactor); // Placeholder for G-code generation
 
-int main()
-{
-
-    //char mode[]= {'8','N','1',0};
+int main() {
     char buffer[100];
+    int textHeight;
+    float scaleFactor;
 
-    // If we cannot open the port then give up immediately
-    if ( CanRS232PortBeOpened() == -1 )
-    {
-        printf ("\nUnable to open the COM port (specified in serial.h) ");
-        exit (0);
+    // Initialize RS232 communication
+    if (CanRS232PortBeOpened() == -1) {
+        printf("\nUnable to open the COM port (specified in serial.h)");
+        exit(0);
     }
 
-    // Time to wake up the robot
-    printf ("\nAbout to wake up the robot\n");
+    printf("\nThe robot is now ready to draw\n");
 
-    // We do this by sending a new-line
-    sprintf (buffer, "\n");
-     // printf ("Buffer to send: %s", buffer); // For diagnostic purposes only, normally comment out
-    PrintBuffer (&buffer[0]);
-    Sleep(100);
-
-    // This is a special case - we wait  until we see a dollar ($)
-    WaitForDollar();
-
-    printf ("\nThe robot is now ready to draw\n");
-
-        //These commands get the robot into 'ready to draw mode' and need to be sent before any writing commands
-    sprintf (buffer, "G1 X0 Y0 F1000\n");
+    // Initialize robot
+    sprintf(buffer, "G1 X0 Y0 F1000\n");
     SendCommands(buffer);
-    sprintf (buffer, "M3\n");
+    sprintf(buffer, "M3\n");
     SendCommands(buffer);
-    sprintf (buffer, "S0\n");
+    sprintf(buffer, "S0\n");
     SendCommands(buffer);
 
+    // Get text height from user and calculate scale factor
+    textHeight = UserInputTextHeight();
+    if (textHeight == -1) {
+        printf("Exiting program.\n");
+        return 0;
+    }
+    scaleFactor = ScaleFactorAdjustment(textHeight);
 
-    // These are sample commands to draw out some information - these are the ones you will be generating.
-    sprintf (buffer, "G0 X-13.41849 Y0.000\n");
-    SendCommands(buffer);
-    sprintf (buffer, "S1000\n");
-    SendCommands(buffer);
-    sprintf (buffer, "G1 X-13.41849 Y-4.28041\n");
-    SendCommands(buffer);
-    sprintf (buffer, "G1 X-13.41849 Y0.0000\n");
-    SendCommands(buffer);
-    sprintf (buffer, "G1 X-13.41089 Y4.28041\n");
-    SendCommands(buffer);
-    sprintf (buffer, "S0\n");
-    SendCommands(buffer);
-    sprintf (buffer, "G0 X-7.17524 Y0\n");
-    SendCommands(buffer);
-    sprintf (buffer, "S1000\n");
-    SendCommands(buffer);
-    sprintf (buffer, "G0 X0 Y0\n");
-    SendCommands(buffer);
+    // Placeholder for processing text
+    printf("Text height: %d mm, Scale factor: %.2f\n", textHeight, scaleFactor);
 
-    // Before we exit the program we need to close the COM port
+    // Close communication
     CloseRS232Port();
-    printf("Com port now closed\n");
-
-    return (0);
+    printf("COM port now closed\n");
+    return 0;
 }
 
-int UserInputTextHeight ( )
-{
+int UserInputTextHeight() {
+    int textHeight;
+    printf("Enter text height (4-10 mm): ");
+    scanf("%d", &textHeight);
 
-
+    if (textHeight < 4 || textHeight > 10) {
+        printf("Invalid text height.\n");
+        return -1;
+    }
+    return textHeight;
 }
-float ScaleFactorAdjustment ()
-{
 
+float ScaleFactorAdjustment(int textHeight) {
+    return (float)textHeight / FONT_SCALE_FACTOR;
+}
 
-} 
-
-
-// Send the data to the robot - note in 'PC' mode you need to hit space twice
-// as the dummy 'WaitForReply' has a getch() within the function.
-void SendCommands (char *buffer )
-{
-    // printf ("Buffer to send: %s", buffer); // For diagnostic purposes only, normally comment out
-    PrintBuffer (&buffer[0]);
+void SendCommands(char *buffer) {
+    PrintBuffer(&buffer[0]);
     WaitForReply();
-    Sleep(100); // Can omit this when using the writing robot but has minimal effect
-    // getch(); // Omit this once basic testing with emulator has taken place
+    Sleep(100);
 }
