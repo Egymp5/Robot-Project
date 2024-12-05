@@ -158,6 +158,19 @@ void convertTextToGCode(const char *textPath, FontCharacter *fontArray, int char
         }
         printf("Processing word: %s\n", word);
 
+        // Calculate the width of the word
+        double wordWidth = 0.0;
+        for (int i = 0; word[i] != '\0'; i++) {
+            wordWidth += 10.0 * scaleFactor + CHAR_EXTRA_SPACING;
+        }
+
+        // Check if the word fits in the current line
+        if (xPos + wordWidth > MAX_LINE_WIDTH_MM) {
+            xPos = 0.0;               // Reset horizontal position
+            yPos -= LINE_SPACING_MM;  // Move to the next line
+            printf("Word exceeds line width. Moving to Y position: %.2f\n", yPos);
+        }
+
         // Process each character in the word
         for (int i = 0; word[i] != '\0'; i++) {
             FontCharacter *charData = NULL;
