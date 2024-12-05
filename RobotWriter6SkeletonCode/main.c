@@ -6,7 +6,7 @@
 // Constants for robot operation
 #define BAUD_RATE 115200        // Baud rate for RS232 communication
 #define MAX_ASCII 128           // Total number of ASCII characters supported
-#define LINE_SPACING_MM 5.0     // Space between lines in mm
+#define LINE_SPACING_MM 12.0    // Space between lines in mm
 #define MAX_LINE_WIDTH_MM 100.0 // Maximum allowable line width in mm
 #define CHAR_EXTRA_SPACING 2.5  // Additional horizontal space between characters in mm
 
@@ -143,7 +143,7 @@ void convertTextToGCode(const char *textPath, FontCharacter *fontArray, int char
     while ((charRead = fgetc(file)) != EOF) {
         if (charRead == '\n') { // Handle line breaks
             xPos = 0.0;
-            yPos -= LINE_SPACING_MM + 5.0; // Move down to the next line
+            yPos -= LINE_SPACING_MM; // Move down to the next line
             printf("Line break. Moving to Y position: %.2f\n", yPos);
             continue;
         } else if (charRead == '\r') { // Handle carriage returns
