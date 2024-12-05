@@ -42,7 +42,7 @@ int main() {
     scaleFactor = ComputeScaleFactor(textHeight);
     printf("Scale Factor: %.4f\n", scaleFactor);
 
-    // Test function: Process the text file and output G-code to terminal
+    // Process the text file and output G-code to terminal
     ProcessText(textFile, fontArray, fontCharCount, scaleFactor);
 
     // Cleanup
@@ -166,25 +166,50 @@ void ProcessText(const char *textFileName, FontData *fontArray, int fontCharCoun
 
         printf("Processing word: %s\n", word);
 
-        // Word width calculation placeholder
+        // Calculate word width and check line width
         double wordWidth = 0.0;
         for (int i = 0; word[i] != '\0'; i++) {
-            wordWidth += 10.0 * scaleFactor; // Assume each character contributes 10 units of width
+            wordWidth += 10.0 * scaleFactor;
         }
-        wordWidth += 5.0 * scaleFactor; // Add inter-word spacing
+        wordWidth += 5.0 * scaleFactor;
 
-        // Check line width
         if (xOffset + wordWidth > MAX_WIDTH) {
             xOffset = 0;
             yOffset -= LINE_SPACING + 5; // Move to next line
             printf("Word exceeds line width. Moving to next line at Y offset %.2f\n", yOffset);
         }
 
-        // Placeholder for character processing
+        // Process each character in the word
         for (int i = 0; word[i] != '\0'; i++) {
-            xOffset += 10.0 * scaleFactor; // Increment position for each character
+            FontData *charData = NULL;
+            for (int j = 0; j < fontCharCount; j++) {
+                if (fontArray[j].asciiCode == word[i]) {
+                    charData = &fontArray[j];
+                    break;
+                }
+            }
+
+            if (charData) {
+                for (int k = 0; k < charData->strokeCount; k++) {
+                    int x = charData->strokes[k][0];
+                    int y = charData->strokes[k][1];
+                    int pen = charData->strokes[k][2];
+
+                    double scaledX = xOffset + x * scaleFactor;
+                    double scaledY = yOffset + y * scaleFactor;
+
+                    char buffer[100];
+                    if (pen == 0) { // Pen up
+                        sprintf(buffer, "G0 X%.2f Y%.2f\n", scaledX, scaledY);
+                    } else { // Pen down
+                        sprintf(buffer, "G1 X%.2f Y%.2f\n", scaledX, scaledY);
+                    }
+                    TransmitCommands(buffer); // Output G-code to terminal
+                }
+                xOffset += 10.0 * scaleFactor; // Increment horizontal position for each character
+            }
         }
-        xOffset += 5.0 * scaleFactor; // Add spacing after word
+        xOffset += 5.0 * scaleFactor; // Add spacing after the word
     }
 
     fclose(file);
