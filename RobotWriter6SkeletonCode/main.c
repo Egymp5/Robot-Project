@@ -1,266 +1,349 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include "rs232.h"
-#include "serial.h"
+//#include "serial.h"
 
-// Constants for robot operation
-#define BAUD_RATE 115200        // Baud rate for RS232 communication
-#define MAX_ASCII 128           // Total number of ASCII characters supported
-#define LINE_SPACING_MM 12.0    // Space between lines in mm
-#define MAX_LINE_WIDTH_MM 100.0 // Maximum allowable line width in mm
-#define CHAR_EXTRA_SPACING 2.5  // Additional horizontal space between characters in mm
+#define baud_rate 115200               /* 115200 baud */
+#define MAX_ASCII 128
+#define LINE_SPACING_MM 5.0
+#define MAX_LINE_WIDTH_MM 100.0
+#define FONT_MARKER 999
 
-// Structure to store information about a font character
-typedef struct {
-    int asciiCode;         // ASCII code for the character
-    int strokeTotal;       // Number of strokes used to form the character
-    int (*strokeData)[3];  // Stroke data: (x offset, y offset, pen state)
-} FontCharacter;
+// Structure to store font data for each ASCII value
+typedef struct
+{
+    int asciiCode;
+    int strokeTotal;
+    int (*strokeData)[3];
+}  FontCharacter;
 
 // Function declarations
+void SendCommands (char *buffer );
 double promptTextHeight();
 double computeScaleFactor(double textHeight);
-FontCharacter* loadFont(const char *fontPath, int *characterCount);
-void cleanupFontMemory(FontCharacter *fontArray, int characterCount);
-void convertTextToGCode(const char *textPath, FontCharacter *fontArray, int characterCount, double scaleFactor);
-void printGCodeLine(char *gCodeLine);
-void SendCommands(char *buffer);
+FontCharacter* loadFont(const char *filename, int *characterCount);
+void convertTextToGCode(const char *filename, FontCharacter *fontArray, int characterCount, double scaleFactor);
+void printGCodeLine(char *buffer);
 
-int main() {
-    const char *fontFilePath = "SingleStrokeFont.txt"; // Path to the font data file
-    const char *inputTextPath = "test.txt";            // Path to the input text file
-    double textHeight, scaleFactor;
-    int characterCount = 0;
-    char buffer[100]; // Buffer to store commands
+int main()
+{
+    const char *fontFilePath="SingleStrokeFont.txt"; // Name of font file
+    const char *inputTextPath="RobotTesting.txt";
+    double textHeight, scaleFactor; 
+    int characterCount=0;
 
-    // Load the font data into memory
-    FontCharacter *fontArray = loadFont(fontFilePath, &characterCount);
-    if (!fontArray) {
-        return 1; // Exit if font loading fails
+    // Load font data into memory
+    FontCharacter *fontArray=loadFont(fontFilePath, &characterCount);
+    if (!fontArray)
+    {
+        return 1; // If font loading fails, exit 
     }
-    printf("Font data loaded successfully. Total characters: %d\n", characterCount);
-
-    // Get the desired text height and calculate the corresponding scale factor
-    textHeight = promptTextHeight();
-    scaleFactor = computeScaleFactor(textHeight);
+    printf("Loaded %d characters from font file. \n", characterCount);
+    char buffer[100];
+    textHeight=promptTextHeight(); //Calls function to get text height
+    scaleFactor=computeScaleFactor(textHeight); //Calculates scale factor
     printf("Calculated scale factor: %.4f\n", scaleFactor);
-
-    // Open the COM port for communication
-    if (CanRS232PortBeOpened() == -1) {
-        printf("\nUnable to open the COM port (specified in serial.h)\n");
-        cleanupFontMemory(fontArray, characterCount);
-        return 1; // Exit if COM port cannot be opened
+    // If we cannot open the port then give up immediately
+    if ( CanRS232PortBeOpened() == -1 )
+    {
+        printf ("\nUnable to open the COM port (specified in serial.h) ");
+        exit (0);
     }
+    
+    // Time to wake up the robot
+    printf ("\nAbout to wake up the robot\n");
+    
+    // We do this by sending a new-line
+    sprintf (buffer, "\n");
+    PrintBuffer (&buffer[0]);
+    Sleep(100);
 
-    // Wake up the robot by sending a new-line character
-    printf("\nAbout to wake up the robot\n");
-    sprintf(buffer, "\n");
-    PrintBuffer(&buffer[0]);
-    Sleep(100);  // Pause for 100 milliseconds
-
-    // Wait for the robot to acknowledge with a dollar sign ($)
+    // This is a special case - we wait until we see a dollar ($)
     WaitForDollar();
-    printf("\nThe robot is now ready to draw\n");
 
-    // Send commands to prepare the robot for drawing
-    sprintf(buffer, "G1 X0 Y0 F1000\n");  // Move to the starting position
+    printf ("\nThe robot is now ready to draw\n");
+
+    // These commands get the robot into 'ready to draw mode' and need to be sent before any writing commands
+    sprintf (buffer, "G1 X0 Y0 F1000\n");
+    printf("%s", buffer); // Print the G-code to the terminal
     SendCommands(buffer);
-    sprintf(buffer, "M3\n");              // Turn on the spindle
+    sprintf (buffer, "M3\n");
     SendCommands(buffer);
-    sprintf(buffer, "S0\n");              // Set speed to 0 (initial state)
+    sprintf (buffer, "S0\n");
     SendCommands(buffer);
 
-    // Convert the input text into G-code using the loaded font
+    // Call convertTextToGCode function
     convertTextToGCode(inputTextPath, fontArray, characterCount, scaleFactor);
 
-    // Close the COM port before exiting
     CloseRS232Port();
     printf("Com port now closed\n");
 
-    // Clean up allocated memory for the font data
-    cleanupFontMemory(fontArray, characterCount);
-    printf("G-code generation completed successfully.\n");
-
-    return 0;
+    return (0);
 }
 
-// Function to send the commands to the robot
-void SendCommands(char *buffer) {
-    PrintBuffer(buffer);
-    WaitForReply();  // Wait for the robot to acknowledge each command
-    Sleep(100);      // Add a short delay to ensure the command is processed properly
+// Function to prompt the user for text height input
+double promptTextHeight()
+{
+    double textHeight = 0.0; //user-provided text height
+    int isInputValid = 0; //flag for valid input 
+
+//loop to repeatedly prompt user if invalid input is entered
+    do {
+        printf("Enter text height in mm (between 4 and 10 mm): ");
+
+        if (scanf("%lf", &textHeight) != 1) // Check if the input is valid
+        {
+            printf("Error: Please enter a numeric value.\n");
+            while (getchar() != '\n');    //clear input buffer to remove invalid chars
+        } else if (textHeight < 4.0 || textHeight > 10.0) 
+        {
+            printf("Error: Text height must be between 4 and 10 mm.\n");  //error message for invalid input
+        } else 
+        {
+            isInputValid = 1; // Input is valid
+        }
+
+    } while (!isInputValid); //continue loop till valid input provided
+
+    return textHeight;
 }
 
-// Function to read the font data file and populate the font array
-FontCharacter* loadFont(const char *fontPath, int *characterCount) {
-    FILE *file = fopen(fontPath, "r");
-    if (!file) {
-        printf("Error: Could not open font file: %s\n", fontPath);
+// Function to calculate the scale factor
+double computeScaleFactor(double textHeight) 
+{
+    return textHeight/18.0; //Scales text appropriately
+}
+
+//Function to send G-code commands to the robot
+void SendCommands (char *buffer )
+{
+    PrintBuffer (&buffer[0]);
+    WaitForReply();
+    Sleep(100); // Can omit this when using the writing robot but has minimal effect
+}
+
+// Function to print G-code to the terminal
+void printGCodeLine(char *buffer) 
+{
+    printf("%s", buffer); // Print the buffer content to the terminal
+}
+
+
+// Function to load font data from a file
+// Function to load font data from a file
+FontCharacter* loadFont(const char *filename, int *characterCount) 
+{
+    // Open the font file in read mode
+    FILE *file = fopen(filename, "r");
+    if (!file) 
+    {
+        // If the file could not be opened, print an error message and return NULL
+        printf("Error: Could not open font file %s\n", filename);
         return NULL;
     }
 
-    // Allocate memory for the font array
+    // Allocate memory for an array of FontCharacter structures
     FontCharacter *fontArray = malloc(MAX_ASCII * sizeof(FontCharacter));
-    if (!fontArray) {
-        printf("Error: Memory allocation failed for font data.\n");
+    if (!fontArray) 
+    {
+        // If memory allocation fails, print an error message, close the file, and return NULL
+        printf("Error: Memory allocation failed.\n");
         fclose(file);
         return NULL;
     }
 
-    *characterCount = 0; // Initialise the number of loaded characters
+    // Initialise the character count to zero
+    *characterCount = 0;
 
-    // Read font data from the file until the end is reached
-    while (!feof(file)) {
+    // Buffer to store each line read from the file
+    char line[256];
+
+    // Loop to read each line from the file using fgets
+    while (fgets(line, sizeof(line), file)) 
+    {
         int marker, asciiCode, strokeTotal;
 
-        // Read marker, ASCII code, and the number of strokes for the character
-        if (fscanf(file, "%d %d %d", &marker, &asciiCode, &strokeTotal) != 3 || marker != 999) {
-            break;  // Stop if the format is incorrect or end of the file is reached
+        // Parse the line to extract the marker, ASCII code, and stroke count
+        if (sscanf(line, "%d %d %d", &marker, &asciiCode, &strokeTotal) != 3 || marker != 999) 
+        {
+            // Exit the loop if the line format is invalid or the marker is incorrect
+            break;
         }
 
-        // Populate the font character details
+        // Get a pointer to the current FontCharacter structure in the array
         FontCharacter *currentChar = &fontArray[*characterCount];
+        // Store the ASCII code for the character
         currentChar->asciiCode = asciiCode;
+        // Store the number of strokes required to draw the character
         currentChar->strokeTotal = strokeTotal;
 
         // Allocate memory for the stroke data
         currentChar->strokeData = malloc(strokeTotal * sizeof(int[3]));
-        if (!currentChar->strokeData) {
-            printf("Error: Memory allocation for character strokes failed.\n");
-            cleanupFontMemory(fontArray, *characterCount);
+        if (!currentChar->strokeData) 
+        {
+            // If memory allocation for strokes fails, print an error message, close the file, and return NULL
+            printf("Error: Memory allocation for strokes failed.\n");
             fclose(file);
             return NULL;
         }
 
-        // Read the strokes that define this character
-        for (int i = 0; i < strokeTotal; i++) {
-            fscanf(file, "%d %d %d", &currentChar->strokeData[i][0],
+        // Loop to read the strokes for the current character
+        for (int i = 0; i < strokeTotal; i++) 
+        {
+            // Read the next line from the file for stroke data
+            fgets(line, sizeof(line), file);
+            // Parse the line to extract the stroke data (x, y, and pen state)
+            sscanf(line, "%d %d %d", &currentChar->strokeData[i][0],
                    &currentChar->strokeData[i][1],
                    &currentChar->strokeData[i][2]);
         }
 
-        (*characterCount)++;  // Increment the character count
+        // Increment the character count after successfully processing one character
+        (*characterCount)++;
     }
 
-    fclose(file); // Close the font file
+    // Close the file after reading all data
+    fclose(file);
+
+    // Return the pointer to the array of FontCharacter structures
     return fontArray;
 }
 
-// Function to free the allocated memory for font data
-void cleanupFontMemory(FontCharacter *fontArray, int characterCount) {
-    for (int i = 0; i < characterCount; i++) {
-        free(fontArray[i].strokeData);  // Free the stroke data for each character
-    }
-    free(fontArray); // Free the array itself
-}
 
-// Function to prompt the user to enter the desired text height
-double promptTextHeight() {
-    double height;
-    while (1) {
-        printf("Enter text height (in mm, between 4 and 10): ");
-        if (scanf("%lf", &height) == 1 && height >= 4 && height <= 10) {
-            return height;  // Return valid height
-        }
-        printf("Invalid input. Please enter a numeric value between 4 and 10.\n");
-        while (getchar() != '\n'); // Clear input buffer in case of invalid input
-    }
-}
 
-// Function to calculate the scale factor based on the text height
-double computeScaleFactor(double textHeight) {
-    return textHeight / 18.0;  // Scale based on a reference height of 18 mm
-}
-
-// Function to process the input text and generate G-code for the robot
-void convertTextToGCode(const char *textPath, FontCharacter *fontArray, int characterCount, double scaleFactor) {
-    FILE *file = fopen(textPath, "r");
-    if (!file) {
-        printf("Error: Unable to open text file: %s\n", textPath);
+// Function to process the text file 
+// Function to convert text file into G-code commands
+void convertTextToGCode(const char *filename, FontCharacter *fontArray, int characterCount, double scaleFactor) 
+{
+    // Open the input file for reading
+    FILE *file = fopen(filename, "r");
+    if (!file) 
+    {
+        // Print an error if the file cannot be opened
+        printf("Error: Unable to open text file %s\n", filename);
         return;
     }
 
-    char word[100];
-    double xPos = 0.0, yPos = 0.0; // Initial offsets for drawing
-    int charRead;
+    char word[100];       // Buffer to store each word from the file
+    double xPos = 0;      // Horizontal position for drawing
+    double yPos = 0;      // Vertical position for drawing
+    int charRead;         // Variable to store characters read from the file
 
-    // Process the text file character by character
-    while ((charRead = fgetc(file)) != EOF) {
-        if (charRead == '\n') { // Handle line breaks
-            xPos = 0.0;                 // Reset X position for a new line
-            yPos -= LINE_SPACING_MM;    // Move down to the next line
-            printf("Line break. Moving to Y position: %.2f\n", yPos);
+    // Read the file character by character
+    while ((charRead = fgetc(file)) != EOF) 
+    {
+        // Handle Line Feed (LF) to move to the next line
+        if (charRead == 10) 
+        { 
+            xPos = 0;                     // Reset horizontal position
+            yPos -= LINE_SPACING_MM + 10; // Move to the next line
+            printf("Line break. Moving to next line at Y position %.2f\n", yPos);
             continue;
-        } else if (charRead == '\r') { // Handle carriage returns
-            xPos = 0.0; // Reset X position for a carriage return
+        } 
+        // Handle Carriage Return (CR) to reset horizontal position
+        else if (charRead == 13) 
+        { 
+            xPos = 0; // Reset horizontal position
+            printf("Resetting X position to %.2f\n", xPos);
             continue;
         }
 
-        ungetc(charRead, file); // Put the character back for word processing
+        // Push back the character if it is part of a word
+        ungetc(charRead, file);
 
-        if (fscanf(file, "%99s", word) != 1) {
-            break; // Stop if there's no word to read
+        // Read the next word from the file
+        if (fscanf(file, "%99s", word) != 1) 
+        {
+            // Break the loop if no valid word is found
+            break;
         }
-        printf("Processing word: %s\n", word);
 
-        // Calculate the width of the word based on character widths
+        printf("Processing word: %s\n", word); // Log the word being processed
+
+        // Calculate the width of the word
         double wordWidth = 0.0;
-        for (int i = 0; word[i] != '\0'; i++) {
-            wordWidth += 10.0 * scaleFactor + CHAR_EXTRA_SPACING;
-        }
-
-        // Check if the word fits in the current line
-        if (xPos + wordWidth > MAX_LINE_WIDTH_MM) {
-            xPos = 0.0;               // Reset horizontal position
-            yPos -= LINE_SPACING_MM;  // Move to the next line
-            printf("Word exceeds line width. Moving to Y position: %.2f\n", yPos);
-        }
-
-        // Process each character in the word
-        for (int i = 0; word[i] != '\0'; i++) {
+        for (int i = 0; word[i] != '\0'; i++) 
+        {
             FontCharacter *charData = NULL;
 
             // Find the font data for the character
-            for (int j = 0; j < characterCount; j++) {
-                if (fontArray[j].asciiCode == word[i]) {
+            for (int j = 0; j < characterCount; j++) 
+            {
+                if (fontArray[j].asciiCode == word[i]) 
+                {
                     charData = &fontArray[j];
                     break;
                 }
             }
 
-            // Generate G-code for the character's strokes
-            if (charData) {
-                for (int k = 0; k < charData->strokeTotal; k++) {
-                    int x = charData->strokeData[k][0];
-                    int y = charData->strokeData[k][1];
-                    int penState = charData->strokeData[k][2];
+            if (charData) 
+            {
+                // Increment word width by the character width
+                wordWidth += 15.0 * scaleFactor;
+            }
+        }
+        // Add extra spacing after the word
+        wordWidth += 5.0 * scaleFactor;
 
+        // Check if the word fits within the current line
+        if (xPos + wordWidth > MAX_LINE_WIDTH_MM)
+        {
+            xPos = 0;                     // Reset horizontal position
+            yPos -= LINE_SPACING_MM + 10; // Move to the next line
+            printf("Word exceeds line width. Moving to next line at Y position %.2f\n", yPos);
+        }
+
+        // Generate G-code for each character in the word
+        for (int i = 0; word[i] != '\0'; i++) 
+        {
+            FontCharacter *charData = NULL;
+
+            // Find the font data for the character
+            for (int j = 0; j < characterCount; j++) 
+            {
+                if (fontArray[j].asciiCode == word[i]) 
+                {
+                    charData = &fontArray[j];
+                    break;
+                }
+            }
+
+            if (charData) 
+            {
+                // Generate G-code for each stroke in the character
+                for (int k = 0; k < charData->strokeTotal; k++) 
+                {
+                    int x = charData->strokeData[k][0]; // X offset for the stroke
+                    int y = charData->strokeData[k][1]; // Y offset for the stroke
+                    int penState = charData->strokeData[k][2]; // Pen state (up or down)
+
+                    // Adjust stroke coordinates based on the scale factor
                     double adjustedX = xPos + x * scaleFactor;
                     double adjustedY = yPos + y * scaleFactor;
 
-                    char gCodeLine[100];
-                    if (penState == 0) {
-                        sprintf(gCodeLine, "G0 X%.2f Y%.2f\n", adjustedX, adjustedY);
-                    } else {
-                        sprintf(gCodeLine, "G1 X%.2f Y%.2f\n", adjustedX, adjustedY);
+                    char buffer[100]; // Buffer to store the G-code command
+                    if (penState == 0) 
+                    { 
+                        // Pen up command
+                        sprintf(buffer, "G0 X%.2f Y%.2f\n", adjustedX, adjustedY);
+                    } 
+                    else 
+                    { 
+                        // Pen down command
+                        sprintf(buffer, "G1 X%.2f Y%.2f\n", adjustedX, adjustedY);
                     }
-                    printGCodeLine(gCodeLine);
+                    printGCodeLine(buffer); // Output the G-code to the terminal
+                    SendCommands(buffer);   // Send the G-code to the robot
                 }
 
-                // Update the horizontal position for the next character
-                xPos += 10.0 * scaleFactor + CHAR_EXTRA_SPACING;
+                // Increment the horizontal position after processing the character
+                xPos += 15.0 * scaleFactor;
             }
         }
 
-        // Add spacing between words
+        // Add extra spacing after the word
         xPos += 5.0 * scaleFactor;
     }
 
-    fclose(file); // Close the text file
-}
-
-// Function to output G-code to the terminal
-void printGCodeLine(char *gCodeLine) {
-    printf("%s", gCodeLine); // Print the G-code line to the terminal
+    fclose(file); // Close the file
 }
