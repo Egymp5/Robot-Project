@@ -45,7 +45,7 @@ int main()
     //Calls TextHeight function
     textHeight=promptTextHeight(); 
 
-    //Calls ScaleFactor function
+    //Calls ScaleFactor functionh 
     scaleFactor=computeScaleFactor(textHeight); 
     printf("Calculated scale factor: %.4f\n", scaleFactor);
 
