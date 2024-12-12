@@ -22,6 +22,7 @@ double computeScaleFactor(double textHeight); //Function to calculate the scale 
 FontCharacter* loadFont(const char *filename, int *characterCount); //Function to load font data from a file into memory
 void convertTextToGCode(const char *filename, FontCharacter *fontArray, int characterCount, double scaleFactor); //Function to process the text file and generate G-code
 void printGCodeLine(char *buffer); //Function to print G code commands to the terminal
+double calculateWordWidth(const char* word, FontCharacter *fontArray, int characterCount, double scaleFactor) 
 
 int main()
 {
@@ -124,50 +125,80 @@ void SendCommands(char *buffer)
     Sleep(100); //Add a slight delay for command execution
 }
 
+// Helper function to calculate word width
+double calculateWordWidth(const char* word, FontCharacter *fontArray, int characterCount, double scaleFactor) 
+{
+    double wordWidth = 0.0;
+    for (int i = 0; word[i] != '\0'; i++) 
+    {
+        for (int j = 0; j < characterCount; j++) 
+        {
+            if (fontArray[j].asciiCode == word[i]) 
+            {
+                wordWidth += 15.0 * scaleFactor;
+                break;
+            }
+        }
+    }
+    wordWidth += 5.0 * scaleFactor;
+    return wordWidth;
+}
+
+// Main conversion function
 void convertTextToGCode(const char *filename, FontCharacter *fontArray, int characterCount, double scaleFactor) 
 {
-    FILE *file = fopen(filename, "r"); //Open the input file
+    FILE *file = fopen(filename, "r");
     if (!file) 
     {
-        printf("Error: Unable to open text file %s\n", filename); //Print error if file cannot be opened
+        printf("Error: Unable to open text file %s\n", filename);
         return;
     }
 
-    char word[100]; //Buffer to store each word from the file
-    double xPos = 0; //Horizontal position for drawing
-    double yPos = 0; //Vertical position for drawing
-    int charRead; //Variable to store characters read from the file
+    double xPos = 0;
+    double yPos = 0;
+    char word[100];
+    int charRead;
 
-    while ((charRead = fgetc(file)) != EOF) //Read the file character by character using fgets
+    while ((charRead = fgetc(file)) != EOF) 
     {
-        if (charRead == 10) 
-        { 
-            xPos = 0; //Reset horizontal position
-            yPos -= LINE_SPACING_MM + 10; //Move to the next line
-            printf("Line break. Moving to next line at Y position %.2f\n", yPos); //Notif about the line break
-            continue;
-        } 
-        else if (charRead == 13) 
-        { 
-            xPos = 0; //Reset horizontal position
-            continue;
-        }
-
-        ungetc(charRead, file); //Push back the character if it is part of a word
-
-        if (fscanf(file, "%99s", word) != 1) //Read the next word from the file
+        // Skip line feeds and carriage returns
+        if (charRead == 10 || charRead == 13) 
         {
-            break; //Exit loop if no valid word is found
+            if (charRead == 10) 
+            {
+                xPos = 0;
+                yPos -= LINE_SPACING_MM + 10;
+                printf("Line break. Moving to next line at Y position %.2f\n", yPos);
+            }
+            continue;
         }
 
-        printf("Processing word: %s\n", word); //log the word being processed
+        // Rewind and read the full word
+        ungetc(charRead, file);
+        if (fscanf(file, "%99s", word) != 1) 
+        {
+            break;
+        }
 
-        double wordWidth = 0.0; //Calculate the width of the word
+        printf("Processing word: %s\n", word);
+
+        // Calculate word width using the helper function
+        double wordWidth = calculateWordWidth(word, fontArray, characterCount, scaleFactor);
+
+        // Line wrapping logic
+        if (xPos + wordWidth > MAX_LINE_WIDTH_MM) 
+        {
+            xPos = 0;
+            yPos -= LINE_SPACING_MM + 10;
+        }
+
+        // G-code generation
         for (int i = 0; word[i] != '\0'; i++) 
         {
             FontCharacter *charData = NULL;
 
-            for (int j = 0; j < characterCount; j++) //Find the font data for the character
+            // Find character data
+            for (int j = 0; j < characterCount; j++) 
             {
                 if (fontArray[j].asciiCode == word[i]) 
                 {
@@ -176,61 +207,39 @@ void convertTextToGCode(const char *filename, FontCharacter *fontArray, int char
                 }
             }
 
+            // Only process if character is found
             if (charData) 
             {
-                wordWidth += 15.0 * scaleFactor; //Accumulate character widths
-            }
-        }
-        wordWidth += 5.0 * scaleFactor; //Add extra spacing after the word
-
-        if (xPos + wordWidth > MAX_LINE_WIDTH_MM) //Check if the word fits within the crrent line
-        {
-            xPos = 0;
-            yPos -= LINE_SPACING_MM + 10; 
-        }
-
-        for (int i = 0; word[i] != '\0'; i++) //Generate G-code for each character in the word
-        {
-            FontCharacter *charData = NULL;
-
-            for (int j = 0; j < characterCount; j++) //Find the font data for the character
-            {
-                if (fontArray[j].asciiCode == word[i]) 
+                // Direct G-code generation within the same loop
+                for (int k = 0; k < charData->strokeTotal; k++) 
                 {
-                    charData = &fontArray[j];
-                    break;
-                }
-            }
-
-            if (charData) 
-            {
-                for (int k = 0; k < charData->strokeTotal; k++) //generate G-code for each stroke in the character
-                {
-                    int x = charData->strokeData[k][0]; //X offset for the stroke
-                    int y = charData->strokeData[k][1]; //Y offset for the stroke
-                    int penState = charData->strokeData[k][2]; //Pen state (up or down)
+                    int x = charData->strokeData[k][0];
+                    int y = charData->strokeData[k][1];
+                    int penState = charData->strokeData[k][2];
 
                     double adjustedX = xPos + x * scaleFactor;
                     double adjustedY = yPos + y * scaleFactor; 
 
-                    char buffer[100]; //Buffer to store the G-code command
+                    char buffer[100];
                     if (penState == 0) 
                     { 
-                        sprintf(buffer, "G0 X%.2f Y%.2f\n", adjustedX, adjustedY); //Change to S0 when using the robot
+                        sprintf(buffer, "G0 X%.2f Y%.2f\n", adjustedX, adjustedY);
                     } 
                     else 
                     { 
-                        sprintf(buffer, "G1 X%.2f Y%.2f\n", adjustedX, adjustedY); //Change to S1000 when using the robot
+                        sprintf(buffer, "G1 X%.2f Y%.2f\n", adjustedX, adjustedY);
                     }
-                    printGCodeLine(buffer); //Output the G-code to the terminal
-                    SendCommands(buffer); //Send the G-code to the robot
+                    printGCodeLine(buffer);
+                    SendCommands(buffer);
                 }
 
-                xPos += 15.0 * scaleFactor; //Increment horizontal position after processing the character
+                // Horizontal positioning after character
+                xPos += 15.0 * scaleFactor;
             }
         }
 
-        xPos += 5.0 * scaleFactor; //Add extra spacing after the word
+        // Word spacing
+        xPos += 5.0 * scaleFactor;
     }
 
     fclose(file); 
